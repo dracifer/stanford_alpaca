@@ -54,9 +54,9 @@ block_size=$((initial_context_length * max_position_embeddings_scale_factor))
 # stage2/3
 WANDB_DISABLED=true \
 deepspeed --num_gpus=8 run_clm.py \
-    --deepspeed ~/bwen/Finetune_LLMs/finetuning_repo/ds_config_stage2.json \
+    --deepspeed ./deepspeed_configs/ds_config_stage2.json \
     --model_name_or_path decapoda-research/llama-7b-hf \
-    --train_file ~/bwen/llama_variation/GPT-4-LLM/data/alpaca_gpt4_data.json \
+    --train_file ./alpaca_gpt4_data.json \
     --do_train \
     --fp16 \
     --overwrite_cache \
