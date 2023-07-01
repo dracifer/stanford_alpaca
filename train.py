@@ -44,7 +44,7 @@ PROMPT_DICT = {
 
 @dataclass
 class ModelArguments:
-    model_name_or_path: Optional[str] = field(default="facebook/opt-125m")
+    model_name_or_path: Optional[str] = field(default="decapoda-research/llama-7b-hf")
 
 
 @dataclass
@@ -186,6 +186,7 @@ def train():
     model = transformers.AutoModelForCausalLM.from_pretrained(
         model_args.model_name_or_path,
         cache_dir=training_args.cache_dir,
+        max_position_embeddings_scale_factor=2,
     )
 
     tokenizer = transformers.AutoTokenizer.from_pretrained(
