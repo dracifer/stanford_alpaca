@@ -16,12 +16,15 @@ import copy
 import logging
 from dataclasses import dataclass, field
 from typing import Dict, Optional, Sequence
-
+from transformers.trainer_utils import get_last_checkpoint, is_main_process
 import torch
 import transformers
 import utils
 from torch.utils.data import Dataset
-from transformers import Trainer
+from transformers import Trainer, AutoConfig, set_seed
+import sys
+
+logger = logging.getLogger(__name__)
 
 IGNORE_INDEX = -100
 DEFAULT_PAD_TOKEN = "[PAD]"
@@ -44,7 +47,8 @@ PROMPT_DICT = {
 
 @dataclass
 class ModelArguments:
-    model_name_or_path: Optional[str] = field(default="facebook/opt-125m")
+    model_name_or_path: Optional[str] = field(default="decapoda-research/llama-7b-hf")
+    max_position_embeddings_scale_factor: float = field(default=1.0)
 
 
 @dataclass
@@ -57,7 +61,7 @@ class TrainingArguments(transformers.TrainingArguments):
     cache_dir: Optional[str] = field(default=None)
     optim: str = field(default="adamw_torch")
     model_max_length: int = field(
-        default=512,
+        default=2048,
         metadata={"help": "Maximum sequence length. Sequences will be right padded (and possibly truncated)."},
     )
 
@@ -123,6 +127,31 @@ def preprocess(
         label[:source_len] = IGNORE_INDEX
     return dict(input_ids=input_ids, labels=labels)
 
+def setupLogging(training_args):
+     # Setup logging
+    logging.basicConfig(
+        format="%(asctime)s - %(levelname)s - %(name)s -   %(message)s",
+        datefmt="%m/%d/%Y %H:%M:%S",
+        handlers=[logging.StreamHandler(sys.stdout)],
+    )
+    logger.setLevel(logging.INFO if is_main_process(
+        training_args.local_rank) else logging.WARN)
+
+    # Log on each process the small summary:
+    logger.warning(
+        f"Process rank: {training_args.local_rank}, device: {training_args.device}, n_gpu: {training_args.n_gpu}"
+        + f"distributed training: {bool(training_args.local_rank != -1)}, 16-bits training: {training_args.fp16}"
+    )
+    # Set the verbosity to info of the Transformers logger (on main process only):
+    if is_main_process(training_args.local_rank):
+        transformers.utils.logging.set_verbosity_info()
+        transformers.utils.logging.enable_default_handler()
+        transformers.utils.logging.enable_explicit_format()
+    logger.info("Training/evaluation parameters %s", training_args)
+
+    # Set seed before initializing model.
+    set_seed(training_args.seed)
+
 
 class SupervisedDataset(Dataset):
     """Dataset for supervised fine-tuning."""
@@ -179,13 +208,21 @@ def make_supervised_data_module(tokenizer: transformers.PreTrainedTokenizer, dat
     return dict(train_dataset=train_dataset, eval_dataset=None, data_collator=data_collator)
 
 
-def train():
+def train(args=None):
     parser = transformers.HfArgumentParser((ModelArguments, DataArguments, TrainingArguments))
-    model_args, data_args, training_args = parser.parse_args_into_dataclasses()
+    model_args, data_args, training_args = parser.parse_args_into_dataclasses(args)
+    setupLogging(training_args)
+    
+    config_kwargs = {
+        "max_position_embeddings_scale_factor": model_args.max_position_embeddings_scale_factor,
+    }
+    config = AutoConfig.from_pretrained(
+            model_args.model_name_or_path, **config_kwargs)
 
     model = transformers.AutoModelForCausalLM.from_pretrained(
         model_args.model_name_or_path,
         cache_dir=training_args.cache_dir,
+        config=config,
     )
 
     tokenizer = transformers.AutoTokenizer.from_pretrained(
@@ -212,6 +249,8 @@ def train():
     )
 
     data_module = make_supervised_data_module(tokenizer=tokenizer, data_args=data_args)
+    logger.warning(f"!!!Context Window Size: {tokenizer.model_max_length}")
+    
     trainer = Trainer(model=model, tokenizer=tokenizer, args=training_args, **data_module)
     trainer.train()
     trainer.save_state()

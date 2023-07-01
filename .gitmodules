@@ -1,0 +1,3 @@
+[submodule "LongChat"]
+	path = LongChat
+	url = https://github.com/DachengLi1/LongChat.git
