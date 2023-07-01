@@ -7,3 +7,5 @@ torch
 sentencepiece
 tokenizers>=0.13.3
 wandb
+accelerate @ git+https://github.com/huggingface/accelerate@main
+deepspeed
